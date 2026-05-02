@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { FileText, Upload, Plus, Trash2, X, File } from 'lucide-react';
+import { FileText, Upload, Plus, Trash2, X, File, ExternalLink } from 'lucide-react';
 import { extractTextFromFile } from '../services/gemini';
+import { savePdf, getPdfUrl, deletePdf } from '../services/pdfStorage';
 import * as pdfjsLib from 'pdfjs-dist';
 
 // Point the worker at the bundled worker file served by Vite
@@ -21,7 +22,7 @@ const extractPdfText = async (file) => {
   return pages.join('\n\n');
 };
 
-const ResourceManager = ({ resources, onAddResource, onDeleteResource }) => {
+const ResourceManager = ({ resources, onAddResource, onAddResources, onDeleteResource }) => {
   const [isAddingText, setIsAddingText] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
@@ -35,25 +36,30 @@ const ResourceManager = ({ resources, onAddResource, onDeleteResource }) => {
     if (!files || files.length === 0) return;
     
     setIsProcessing(true);
+    const collected = [];
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        setProcessingName(file.name);
+        setProcessingName(files.length > 1 ? `${file.name} (${i + 1}/${files.length})` : file.name);
         let content = '';
-        
+        const resourceId = Date.now() + i;
+
         if (file.type === 'application/pdf') {
           content = await extractPdfText(file);
+          // Save raw binary to IndexedDB so user can view/reopen the PDF
+          await savePdf(resourceId, file);
         } else {
           content = await extractTextFromFile(file);
         }
         
-        onAddResource({
-          id: Date.now() + i,
+        collected.push({
+          id: resourceId,
           title: file.name,
           type: file.type === 'application/pdf' ? 'pdf' : 'file',
-          content: content.substring(0, 20000) // up to 20k chars per resource
+          content: content.substring(0, 20000)
         });
       }
+      onAddResources(collected);
     } catch (error) {
       console.error("Error processing file", error);
       alert(`Error processing file: ${error.message}`);
@@ -62,6 +68,22 @@ const ResourceManager = ({ resources, onAddResource, onDeleteResource }) => {
       setProcessingName('');
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleViewPdf = async (resource) => {
+    const url = await getPdfUrl(resource.id);
+    if (url) {
+      window.open(url, '_blank');
+    } else {
+      alert('PDF not found in browser storage. Please re-upload the file.');
+    }
+  };
+
+  const handleDeleteResource = async (resource) => {
+    if (resource.type === 'pdf') {
+      await deletePdf(resource.id).catch(() => {});
+    }
+    onDeleteResource(resource.id);
   };
 
   const handleSaveManualText = () => {
@@ -175,9 +197,21 @@ const ResourceManager = ({ resources, onAddResource, onDeleteResource }) => {
                   {resource.content.substring(0, 60)}...
                 </p>
               </div>
-              <button className="btn-icon" style={{ padding: '4px', color: 'var(--danger)' }} onClick={() => onDeleteResource(resource.id)}>
-                <Trash2 size={14} />
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flexShrink: 0 }}>
+                {resource.type === 'pdf' && (
+                  <button
+                    className="btn-icon"
+                    title="View PDF"
+                    style={{ padding: '4px', color: 'var(--accent-primary)' }}
+                    onClick={() => handleViewPdf(resource)}
+                  >
+                    <ExternalLink size={14} />
+                  </button>
+                )}
+                <button className="btn-icon" style={{ padding: '4px', color: 'var(--danger)' }} onClick={() => handleDeleteResource(resource)}>
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
           ))
         )}

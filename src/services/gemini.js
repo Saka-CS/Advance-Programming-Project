@@ -84,6 +84,40 @@ Provide your suggestions in a clear, bulleted markdown list.`;
   return result.response.text();
 };
 
+export const checkCitation = async (citationText, resources) => {
+  if (!genAI) throw new Error('Gemini API not initialized');
+  const model = genAI.getGenerativeModel({ model: currentModelName });
+
+  const context = buildContext(resources);
+
+  if (!resources || resources.length === 0) {
+    throw new Error('No PDF resources loaded. Please upload source documents first.');
+  }
+
+  const prompt = `You are a strict academic fact-checker. The user has written a piece of text that may contain citations or factual claims. Your job is to verify each claim against the provided source documents ONLY.
+
+For each identifiable claim or citation in the user's text:
+1. State the claim clearly.
+2. Search the provided resources for supporting or contradicting evidence.
+3. Return one of these verdicts:
+   - ✅ **Supported** – The claim is directly supported by the source documents.
+   - ⚠️ **Partially Supported** – Some aspects are supported but others are not found.
+   - ❌ **Not Found** – No evidence for this claim exists in the provided documents.
+   - ❌ **Contradicted** – The documents explicitly contradict this claim.
+4. Quote the relevant excerpt from the source document that justifies your verdict.
+
+Source Documents:
+${context}
+
+Text to Verify:
+${citationText}
+
+Citation Check Report:`;
+
+  const result = await model.generateContent(prompt);
+  return result.response.text();
+};
+
 // A simple utility to extract text from a file if needed (for text files)
 // For PDFs, we would typically use a library like pdf.js, but we'll simulate or use basic text extraction here.
 export const extractTextFromFile = async (file) => {
